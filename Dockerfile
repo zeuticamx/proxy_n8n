@@ -17,7 +17,7 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY anthropic_cache_proxy.py .
+COPY main.py .
 
 # Usuario sin privilegios. El proxy ve las API keys que pasan en los headers,
 # así que no lo corras como root.
