@@ -119,20 +119,32 @@ async def health():
     return {"ok": True, "ttl": SYSTEM_TTL, "auto_cache": ENABLE_AUTO_CACHE}
 
 
-@app.post("/v1/messages")
-async def messages(request: Request):
+@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+async def passthrough(path: str, request: Request):
+    """
+    Reenvía CUALQUIER ruta a la API real de Anthropic.
+
+    Necesario porque n8n no solo llama a /v1/messages: el test de conexión
+    de la credencial golpea otro endpoint (p.ej. /v1/models) para validar
+    la API key. Si el proxy solo conociera /v1/messages, ese test fallaría
+    con 404 aunque la key sea válida -- que es justo lo que pasó.
+
+    Solo se inyecta cache_control cuando la ruta es /v1/messages con un
+    body JSON; todo lo demás (GET /v1/models, etc.) pasa intacto.
+    """
     raw = await request.body()
-    
+    upstream_path = f"/{path}"
 
-    try:
-        body = json.loads(raw)
-    except json.JSONDecodeError:
-        # Si no es JSON válido, pasa tal cual y deja que Anthropic responda.
-        body = None
+    body = None
+    if raw and upstream_path == "/v1/messages":
+        try:
+            body = json.loads(raw)
+        except json.JSONDecodeError:
+            body = None
 
-    if body is not None:
-        body = inject_cache_control(body)
-        raw = json.dumps(body).encode()
+        if body is not None:
+            body = inject_cache_control(body)
+            raw = json.dumps(body).encode()
 
     # Reenvía las credenciales del cliente (x-api-key, anthropic-version).
     # Quitamos host/content-length porque httpx los recalcula.
@@ -145,7 +157,10 @@ async def messages(request: Request):
     is_stream = bool(body and body.get("stream"))
 
     if is_stream:
-        req = client.build_request("POST", "/v1/messages", content=raw, headers=headers)
+        req = client.build_request(
+            request.method, upstream_path, content=raw,
+            params=request.query_params, headers=headers,
+        )
         upstream = await client.send(req, stream=True)
 
         async def relay():
@@ -161,18 +176,26 @@ async def messages(request: Request):
             media_type=upstream.headers.get("content-type", "text/event-stream"),
         )
 
-    upstream = await client.post("/v1/messages", content=raw, headers=headers)
+    upstream = await client.request(
+        request.method, upstream_path,
+        content=raw if raw else None,
+        params=request.query_params,
+        headers=headers,
+    )
 
-    try:
-        payload = upstream.json()
-        log_usage(payload)
-        return JSONResponse(payload, status_code=upstream.status_code)
-    except Exception:
-        return Response(
-            content=upstream.content,
-            status_code=upstream.status_code,
-            media_type=upstream.headers.get("content-type"),
-        )
+    if upstream_path == "/v1/messages":
+        try:
+            payload = upstream.json()
+            log_usage(payload)
+            return JSONResponse(payload, status_code=upstream.status_code)
+        except Exception:
+            pass
+
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type"),
+    )
 
 
 @app.on_event("shutdown")
