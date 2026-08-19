@@ -21,8 +21,10 @@ COPY main.py .
 
 # Usuario sin privilegios. El proxy ve las API keys que pasan en los headers,
 # así que no lo corras como root.
-RUN useradd -m -u 1000 proxy && chown -R proxy:proxy /app
-USER proxy
+# Nota: la imagen base python:3.12-slim ya trae un usuario llamado "proxy"
+# (viene de Debian/_apt), por eso usamos otro nombre aquí.
+RUN useradd -m -u 1001 appuser && chown -R appuser:appuser /app
+USER appuser
 
 ENV SYSTEM_TTL=5m \
     ENABLE_AUTO_CACHE=true \
