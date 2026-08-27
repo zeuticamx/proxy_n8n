@@ -28,12 +28,12 @@ USER appuser
 
 ENV SYSTEM_TTL=5m \
     ENABLE_AUTO_CACHE=true \
-    PORT=8000
+    PORT=80
 
-EXPOSE 8000
+EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -fsS http://localhost:8000/health || exit 1
+    CMD curl -fsS http://localhost:80/health || exit 1
 
 # --timeout-keep-alive alto: los loops de tools del agente pueden tardar.
 # proxy-headers para que EasyPanel/Traefik pase bien el esquema y la IP.
